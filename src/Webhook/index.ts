@@ -1,4 +1,14 @@
-import { AzureFunction, Context, HttpRequest } from "@azure/functions"
+// eslint-disable-next-line no-unused-vars
+import { AzureFunction, Context, HttpRequest } from "@azure/functions";
+import * as smeeClient from "smee-client";
+
+const smee = new smeeClient({
+    source: 'https://smee.io/WVVXNYiH2HPE3ZX',
+    target: 'http://localhost:7071/api/Webhook',
+    logger: console
+});
+
+smee.start();
 
 const httpTrigger: AzureFunction = async function (context: Context, req: HttpRequest): Promise<void> {
     context.log('HTTP trigger function processed a request.');

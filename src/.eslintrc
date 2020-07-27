@@ -1,11 +1,20 @@
 {
     "parser": "@typescript-eslint/parser",
-    "plugins": ["@typescript-eslint"],
+    "plugins": [
+        "@typescript-eslint"
+    ],
+    "env": {
+        "node": true,
+        "es6": true
+    },
     "parserOptions": {
-        "sourceType": "module"
+        "sourceType": "module",
+        "ecmaFeatures": {
+            "module": true
+        }
     },
     "rules": {
-      "no-multi-spaces": 1
+        "no-multi-spaces": 1
     },
     "extends": "eslint:recommended"
 }
