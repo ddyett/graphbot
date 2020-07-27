@@ -10,6 +10,7 @@
     "test": "echo \"No tests yet...\""
   },
   "dependencies": {
+    "@types/node": "^14.0.26",
     "smee-client": "^1.1.0"
   },
   "devDependencies": {
