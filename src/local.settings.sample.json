@@ -1,0 +1,20 @@
+{
+    "IsEncrypted": false,
+    "Values": {
+      "AzureWebJobsStorage": "",
+      "FUNCTIONS_WORKER_RUNTIME": "node",
+      "github_app_id": "99999",
+      "webproxy_url": "https://smee.io/WVVXNYiH2HPE3ZX",
+      "ADOToken": "",
+      "VSInstance": "https://dev.azure.com/myinstance",
+      "ProjectName": "My Project",
+      "UserStoryName": "User Story",
+      "BugName": "Bug",
+      "UserStoryDescriptionField": "System.Description",
+      "BugDescriptionField": "Microsoft.VSTS.TCM.ReproSteps",
+      "BugLabel": "Bug",
+      "DefaultIteration": "Project\\Iteration 1",
+      "responseLabels": "[\"promote\"]",
+      "IsDevelopment": true
+    }
+  }

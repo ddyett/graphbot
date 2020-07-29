@@ -6,8 +6,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { graphql } from "@octokit/graphql";
 import smeeClient = require("smee-client"); //had to do this due to esmoduleinterop being true
 
-
-const token: string = process.env["ADOToken"]; // e.g "cbdeb34vzyuk5l4gxc4qfczn3lko3avfkfqyb47etahq6axpcqha"; 
+const token: string = process.env["ADOToken"];
 
 //TODO: need to move this to key vault and load the secret
 const privateKey = fs.readFileSync("graphbot.pem", "utf8")
@@ -16,26 +15,91 @@ const privateKey = fs.readFileSync("graphbot.pem", "utf8")
 const authHandler = azdev.getPersonalAccessTokenHandler(token);
 const connection = new azdev.WebApi(process.env["VSInstance"], authHandler);
 
-//TODO: Add check for development environment
-const smee = new smeeClient({
-    source: process.env["webproxy_url"],
-    target: 'http://localhost:7071/api/Webhook'
-});
+if (process.env["IsDevelopment"]) {
+    const smee = new smeeClient({
+        source: process.env["webproxy_url"],
+        target: 'http://localhost:7071/api/Webhook'
+    });
 
-smee.start();
+    smee.start();
+}
 
 //TODO: get this moved to a config file
 const RepoAreaMapping = {
     "graphbot-demo": "Video Project\\Area A"
 };
 
-const createNewbug = async (context: Context, req: HttpRequest): Promise<number> => {
+interface CommentsQL {
+    node: {
+        bodyText: string;
+        author: {
+            login: string;
+        };
+    };
+}
+
+interface IssueResponse {
+    repository: {
+        bodyText: string,
+        id: string,
+        title: string,
+        issue: {
+            comments: {
+                edges: CommentsQL[]
+            },
+            bodyText: string
+        }
+    }
+}
+
+interface EventResponse{
+    action: string,
+    issue: {
+        url: string,
+        id: number,
+        node_id: string,
+        number: number,
+        title: string,
+        user: {
+            login: string
+        }
+        labels: {
+            name: string
+        }[],
+        body:string
+    },
+    repository: {
+        id: number,
+        name: string,
+        owner: {
+            login: string
+        },
+        html_url: string
+    },
+    installation: {
+        id: number
+    },
+    comment: {
+        url: string,
+        id: number,
+        user: {
+            login: string
+        },
+        body: string
+    },
+    label: {
+        name: string,
+        description: string
+    }
+}
+
+const createNewbug = async (context: Context, body: EventResponse): Promise<number> => {
 
     interface AreaMapping {
         [repoName: string]: { areaPath: string };
     }
 
-    const description: string = req.body.issue && req.body.issue.body;
+    const description = body.issue && body.issue.body;
 
     if (description && description.indexOf('AB#') > -1) {
         // this item is already tracked by work in azure boards so abort;
@@ -43,12 +107,12 @@ const createNewbug = async (context: Context, req: HttpRequest): Promise<number>
     }
 
     // figure out if this should be filed as a bug or an issue by looking at the labels on the issue
-    const labels = req.body.issue && req.body.issue.labels;
+    const labels = body.issue && body.issue.labels;
     const workType: string = labels.some((value) => value.name.indexOf(process.env["bugLabel"])) ? process.env["BugName"] : process.env["UserStoryName"];
     const descriptionField: string = workType === process.env["BugName"] ? process.env["BugDescriptionField"] : process.env["UserStoryDescriptionField"];
 
     //grab the area for this particular repo.
-    const areaPath: AreaMapping = RepoAreaMapping[req.body.repository.name];
+    const areaPath: AreaMapping = RepoAreaMapping[body.repository.name];
 
     const witApi = await connection.getWorkItemTrackingApi();
     const result = await witApi.createWorkItem({},
@@ -57,7 +121,7 @@ const createNewbug = async (context: Context, req: HttpRequest): Promise<number>
                 "op": "add",
                 "path": "/fields/System.Title",
                 "from": null,
-                "value": `${req.body.issue.title}`
+                "value": `${body.issue.title}`
             },
             {
                 "op": "add",
@@ -83,14 +147,14 @@ const createNewbug = async (context: Context, req: HttpRequest): Promise<number>
     return result.id;
 }
 
-const addAllComments = async (context: Context, issueData: any /*graphql response object*/, workItemId: number): Promise<void> => {
+const addAllComments = async (context: Context, issueData: IssueResponse /*graphql response object*/, workItemId: number): Promise<void> => {
     try {
         const commentsSection = issueData.repository.issue.comments.edges;
 
         if (!commentsSection || commentsSection.length === 0)
             return;
 
-        commentsSection.forEach(async section => {
+        commentsSection.forEach(async (section: CommentsQL) => {
             const comment: string = section.node && section.node.bodyText;
 
             // not completely sure why but there was missing data if reconnecting was not done
@@ -108,9 +172,9 @@ const addAllComments = async (context: Context, issueData: any /*graphql respons
     }
 }
 
-const addNewcomment = async (context: Context, workItemId: number, req: HttpRequest): Promise<void> => {
-    const comment: string = req.body.comment && req.body.comment.body;
-    const user: string = req.body.comment.user.login;
+const addNewcomment = async (context: Context, workItemId: number, body: EventResponse): Promise<void> => {
+    const comment = body.comment && body.comment.body;
+    const user = body.comment.user.login;
 
     if (!comment)
         return;
@@ -129,11 +193,12 @@ const addNewcomment = async (context: Context, workItemId: number, req: HttpRequ
     }
 }
 
-const updateGitHubIssue = async (context: Context, req: HttpRequest, workItemId: number, updateComments: boolean): Promise<void> => {
+
+const updateGitHubIssue = async (context: Context, body: EventResponse, workItemId: number, updateComments: boolean): Promise<void> => {
     const auth = createAppAuth({
         id: parseInt(process.env["github_app_id"]),
         privateKey: privateKey,
-        installationId: req.body.installation.id
+        installationId: body.installation.id
     });
 
     const graphqlWithAuth = graphql.defaults({
@@ -149,7 +214,7 @@ const updateGitHubIssue = async (context: Context, req: HttpRequest, workItemId:
                 bodyText
                 id
                 title
-                comments(first: 10) {
+                comments(first: 50) {
                     edges {
                         node {
                             bodyText
@@ -164,10 +229,10 @@ const updateGitHubIssue = async (context: Context, req: HttpRequest, workItemId:
       }`;
 
     try {
-        const response = await graphqlWithAuth(issueLookupQuery, {
-            repoName: req.body.repository.name,
-            repoOwner: req.body.repository.owner.login,
-            issueId: req.body.issue.number
+        const response: IssueResponse = await graphqlWithAuth(issueLookupQuery, {
+            repoName: body.repository.name,
+            repoOwner: body.repository.owner.login,
+            issueId: body.issue.number
         });
 
         const updateMutation = `mutation($issueId:ID!, $newBody:String!){
@@ -178,7 +243,7 @@ const updateGitHubIssue = async (context: Context, req: HttpRequest, workItemId:
               state
             }
           }
-      }`;
+        }`;
 
         //ignore here is because an unknown type is returned which typescript cannot process
         await graphqlWithAuth(updateMutation, {
@@ -198,11 +263,11 @@ const updateGitHubIssue = async (context: Context, req: HttpRequest, workItemId:
     }
 }
 
-const getWorkId = (req: HttpRequest): number => {
-    // sample request
+const getWorkId = (body: EventResponse): number => {
+    // sample body text
     // "my sample description 2 hello [AB#46](https://ddyettonline.visualstudio.com/4a40311f-104a-4329-8d3
 
-    const issueBody: string = req.body.issue && req.body.issue.body;
+    const issueBody = body.issue && body.issue.body;
 
     if (!issueBody)
         return;
@@ -217,7 +282,7 @@ const getWorkId = (req: HttpRequest): number => {
     return parseInt(remainingBody.substring(0, firstIndex));
 }
 
-const closeWorkItem = async (context: Context, req: HttpRequest, workItemId: number): Promise<void> => {
+const closeWorkItem = async (context: Context, workItemId: number): Promise<void> => {
 
     try {
         const witApi = await connection.getWorkItemTrackingApi();
@@ -233,6 +298,7 @@ const closeWorkItem = async (context: Context, req: HttpRequest, workItemId: num
     }
 }
 
+
 const httpTrigger: AzureFunction = async function (context: Context, req: HttpRequest): Promise<void> {
     context.log('Received a new GitHub event');
 
@@ -240,7 +306,9 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
     context.log(`Hello ${connData.authenticatedUser.providerDisplayName}`);
 
     try {
-        const action: string = req.body && req.body.action;
+        // eslint-disable-next-line prefer-destructuring
+        const body: EventResponse = req.body;
+        const action = body && body.action;
 
         if (!action) {
             //response isn't actually used so not worried about setting one
@@ -251,8 +319,8 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
             case `opened`:
                 {
                     context.log("New issue opened received");
-                    const workItemId = await createNewbug(context, req);
-                    await updateGitHubIssue(context, req, workItemId, false /*updateComments*/);
+                    const workItemId = await createNewbug(context, body);
+                    await updateGitHubIssue(context, body, workItemId, false /*updateComments*/);
                 }
                 break;
             case `labeled`:
@@ -260,12 +328,12 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
                     context.log("New labeled event received");
                     // check for our custom labels.  
                     const customLabels: string[] = JSON.parse(process.env["responseLabels"]);
-                    const addedLabel: string = req.body.label && req.body.label.name;
+                    const addedLabel = body.label && body.label.name;
 
                     if (addedLabel && customLabels && customLabels.indexOf(addedLabel) > -1) {
                         //newly added label says we should create a new workitem
-                        const workItemId = await createNewbug(context, req);
-                        await updateGitHubIssue(context, req, workItemId, true /*updateComments*/);
+                        const workItemId = await createNewbug(context, body);
+                        await updateGitHubIssue(context, body, workItemId, true /*updateComments*/);
                     }
                 }
                 break;
@@ -273,10 +341,10 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
                 {
                     if (req.headers && req.headers["x-github-event"] === 'issue_comment') {
                         context.log("New Comment Created");
-                        const workItemId = getWorkId(req);
+                        const workItemId = getWorkId(body);
 
                         if (workItemId) {
-                            addNewcomment(context, workItemId, req);
+                            addNewcomment(context, workItemId, body);
                         }
                     }
                 }
@@ -284,11 +352,11 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
             case `closed`:
                 {
                     context.log("New issue closed event received");
-                    const workItemId = getWorkId(req);
+                    const workItemId = getWorkId(body);
 
                     if (workItemId) {
                         context.log(`Preparing to close ${workItemId}`);
-                        await closeWorkItem(context, req, workItemId);
+                        await closeWorkItem(context, workItemId);
                     }
                 }
                 break;
