@@ -3,6 +3,10 @@
     "Values": {
       "AzureWebJobsStorage": "",
       "FUNCTIONS_WORKER_RUNTIME": "node",
+      "KEY-VAULT-NAME":"",
+      "AZURE_TENANT_ID":"",
+      "AZURE_CLIENT_ID":"",
+      "AZURE_CLIENT_SECRET": "",
       "github_app_id": "99999",
       "webproxy_url": "https://smee.io/WVVXNYiH2HPE3ZX",
       "ADOToken": "",

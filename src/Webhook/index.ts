@@ -1,15 +1,19 @@
 // eslint-disable-next-line no-unused-vars
 import { AzureFunction, Context, HttpRequest } from "@azure/functions";
-import * as fs from 'fs';
 import * as azdev from "azure-devops-node-api";
 import { createAppAuth } from "@octokit/auth-app";
 import { graphql } from "@octokit/graphql";
 import smeeClient = require("smee-client"); //had to do this due to esmoduleinterop being true
+import {DefaultAzureCredential} from "@azure/identity";
+import {SecretClient} from "@azure/keyvault-secrets";
 
+const keyVaultName = process.env["KEY-VAULT-NAME"];
+const keyVaultUri = `https://${keyVaultName}.vault.azure.net`;
+
+const credential = new DefaultAzureCredential();
+const secretClient = new SecretClient(keyVaultUri, credential);
+ 
 const token: string = process.env["ADOToken"];
-
-//TODO: need to move this to key vault and load the secret
-const privateKey = fs.readFileSync("graphbot.pem", "utf8")
 
 // establish connection to azure
 const authHandler = azdev.getPersonalAccessTokenHandler(token);
@@ -195,9 +199,12 @@ const addNewcomment = async (context: Context, workItemId: number, body: EventRe
 
 
 const updateGitHubIssue = async (context: Context, body: EventResponse, workItemId: number, updateComments: boolean): Promise<void> => {
+    
+    const secret = await secretClient.getSecret("GIT-RSA");
+    
     const auth = createAppAuth({
         id: parseInt(process.env["github_app_id"]),
-        privateKey: privateKey,
+        privateKey: secret.value,
         installationId: body.installation.id
     });
 
