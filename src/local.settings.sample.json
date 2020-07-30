@@ -18,7 +18,7 @@
       "BugDescriptionField": "Microsoft.VSTS.TCM.ReproSteps",
       "BugLabel": "Bug",
       "DefaultIteration": "Project\\Iteration 1",
-      "responseLabels": "[\"promote\"]",
-      "IsDevelopment": true
+      "IsDevelopment": true,
+      "GitClientSecret": ""
     }
   }

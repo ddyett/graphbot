@@ -17,7 +17,6 @@
     "@types/node": "^14.0.26",
     "azure-devops-node-api": "^10.1.1",
     "azure-keyvault": "^3.0.5",
-    "dotenv": "^8.2.0",
     "smee-client": "^1.1.0"
   },
   "devDependencies": {

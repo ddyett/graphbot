@@ -6,6 +6,9 @@ import { graphql } from "@octokit/graphql";
 import smeeClient = require("smee-client"); //had to do this due to esmoduleinterop being true
 import {DefaultAzureCredential} from "@azure/identity";
 import {SecretClient} from "@azure/keyvault-secrets";
+// eslint-disable-next-line no-unused-vars
+import {CommentsQL, IssueResponse, EventResponse} from "./Interfaces"
+import * as data from "./data.json"
 
 const keyVaultName = process.env["KEY-VAULT-NAME"];
 const keyVaultUri = `https://${keyVaultName}.vault.azure.net`;
@@ -28,75 +31,6 @@ if (process.env["IsDevelopment"]) {
     smee.start();
 }
 
-//TODO: get this moved to a config file
-const RepoAreaMapping = {
-    "graphbot-demo": "Video Project\\Area A"
-};
-
-interface CommentsQL {
-    node: {
-        bodyText: string;
-        author: {
-            login: string;
-        };
-    };
-}
-
-interface IssueResponse {
-    repository: {
-        bodyText: string,
-        id: string,
-        title: string,
-        issue: {
-            comments: {
-                edges: CommentsQL[]
-            },
-            bodyText: string
-        }
-    }
-}
-
-interface EventResponse{
-    action: string,
-    issue: {
-        url: string,
-        id: number,
-        node_id: string,
-        number: number,
-        title: string,
-        user: {
-            login: string
-        }
-        labels: {
-            name: string
-        }[],
-        body:string
-    },
-    repository: {
-        id: number,
-        name: string,
-        owner: {
-            login: string
-        },
-        html_url: string
-    },
-    installation: {
-        id: number
-    },
-    comment: {
-        url: string,
-        id: number,
-        user: {
-            login: string
-        },
-        body: string
-    },
-    label: {
-        name: string,
-        description: string
-    }
-}
-
 const createNewbug = async (context: Context, body: EventResponse): Promise<number> => {
 
     interface AreaMapping {
@@ -116,7 +50,7 @@ const createNewbug = async (context: Context, body: EventResponse): Promise<numb
     const descriptionField: string = workType === process.env["BugName"] ? process.env["BugDescriptionField"] : process.env["UserStoryDescriptionField"];
 
     //grab the area for this particular repo.
-    const areaPath: AreaMapping = RepoAreaMapping[body.repository.name];
+    const areaPath: AreaMapping = data.RepoAreaMapping[body.repository.name];
 
     const witApi = await connection.getWorkItemTrackingApi();
     const result = await witApi.createWorkItem({},
@@ -199,13 +133,16 @@ const addNewcomment = async (context: Context, workItemId: number, body: EventRe
 
 
 const updateGitHubIssue = async (context: Context, body: EventResponse, workItemId: number, updateComments: boolean): Promise<void> => {
-    
     const secret = await secretClient.getSecret("GIT-RSA");
     
+    //TODO: having an encoding issue here, need to fix
+    const secretValue = secret.value.split("\\n").join("\n");  
+
     const auth = createAppAuth({
         id: parseInt(process.env["github_app_id"]),
-        privateKey: secret.value,
-        installationId: body.installation.id
+        privateKey: secretValue,
+        installationId: body.installation.id,
+        clientSecret: process.env["GitClientSecret"]
     });
 
     const graphqlWithAuth = graphql.defaults({
@@ -334,7 +271,7 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
                 {
                     context.log("New labeled event received");
                     // check for our custom labels.  
-                    const customLabels: string[] = JSON.parse(process.env["responseLabels"]);
+                    const customLabels: string[] = data.responseLabels;
                     const addedLabel = body.label && body.label.name;
 
                     if (addedLabel && customLabels && customLabels.indexOf(addedLabel) > -1) {
