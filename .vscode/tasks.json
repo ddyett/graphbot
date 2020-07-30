@@ -8,7 +8,7 @@
 			"isBackground": true,
 			"dependsOn": "npm build",
 			"options": {
-				"cwd": "${workspaceFolder}/src"
+				"cwd": "${workspaceFolder}"
 			}
 		},
 		{
@@ -18,7 +18,7 @@
 			"dependsOn": "npm install",
 			"problemMatcher": "$tsc",
 			"options": {
-				"cwd": "${workspaceFolder}/src"
+				"cwd": "${workspaceFolder}"
 			}
 		},
 		{
@@ -26,7 +26,7 @@
 			"label": "npm install",
 			"command": "npm install",
 			"options": {
-				"cwd": "${workspaceFolder}/src"
+				"cwd": "${workspaceFolder}"
 			}
 		},
 		{
@@ -36,7 +36,7 @@
 			"dependsOn": "npm build",
 			"problemMatcher": [],
 			"options": {
-				"cwd": "${workspaceFolder}/src"
+				"cwd": "${workspaceFolder}"
 			}
 		}
 	]
