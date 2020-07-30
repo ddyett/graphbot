@@ -7,30 +7,37 @@ import smeeClient = require("smee-client"); //had to do this due to esmoduleinte
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 // eslint-disable-next-line no-unused-vars
-import { CommentsQL, IssueResponse, EventResponse } from "./Interfaces"
+import { CommentsResponse, IssueResponse, EventResponse } from "./Interfaces"
 import * as data from "../data.json"
 
 const keyVaultName = process.env["KEY_VAULT_NAME"];
 const keyVaultUri = `https://${keyVaultName}.vault.azure.net`;
-
 const credential = new DefaultAzureCredential();
 const secretClient = new SecretClient(keyVaultUri, credential);
 
-const token: string = process.env["ADOToken"];
+const adoToken: string = process.env["ADOToken"];
 
 // establish connection to azure
-const authHandler = azdev.getPersonalAccessTokenHandler(token);
+const authHandler = azdev.getPersonalAccessTokenHandler(adoToken);
 const connection = new azdev.WebApi(process.env["VSInstance"], authHandler);
 
+//smee is used to route the calls from GitHub to the local box
 if (process.env["IsDevelopment"]) {
     const smee = new smeeClient({
         source: process.env["webproxy_url"],
         target: 'http://localhost:7071/api/Webhook'
     });
-
     smee.start();
 }
 
+
+/**
+ * Creates a new work item in azure dev ops
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {EventResponse} body The response body from the GitHub event
+ * @returns {Promise<number>} The work item id
+ */
 const createNewWorkItem = async (context: Context, body: EventResponse): Promise<number> => {
 
     interface AreaMapping {
@@ -95,6 +102,15 @@ const createNewWorkItem = async (context: Context, body: EventResponse): Promise
     return result.id;
 }
 
+
+/**
+ * Updates the repro steps or description field of a work item
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {EventResponse} body  The response body from the GitHub event
+ * @param {number} workItemId The id of the work item to be updated
+ * @returns {Promise<void>}
+ */
 const updateWorkDescription = async (context: Context, body: EventResponse, workItemId: number): Promise<void> => {
     try {
         const witApi = await connection.getWorkItemTrackingApi();
@@ -117,8 +133,16 @@ const updateWorkDescription = async (context: Context, body: EventResponse, work
     }
 }
 
+/**
+ * Sets the assignment in the work item based on assignment in GitHub
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {EventResponse} body The response body from the GitHub event
+ * @param {number} workItemId The id of the work item to be updated
+ * @returns {Promise<void>}
+ */
 const updateAssignment = async (context: Context, body: EventResponse, workItemId: number): Promise<void> => {
-    try{
+    try {
         const witApi = await connection.getWorkItemTrackingApi();
 
         await witApi.updateWorkItem(undefined, [{
@@ -129,11 +153,19 @@ const updateAssignment = async (context: Context, body: EventResponse, workItemI
         },
         ], workItemId);
     }
-    catch (err){
+    catch (err) {
         context.log(err);
     }
 }
 
+/**
+ * Adds up to 50 of the comments from GitHub into the azure workitem as separate comments
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {IssueResponse} issueData Information about the issue with comments returned from GraphQL
+ * @param {number} workItemId The id of the work item to be updated
+ * @returns {Promise<void>}
+ */
 const addAllComments = async (context: Context, issueData: IssueResponse, workItemId: number): Promise<void> => {
     try {
         const commentsSection = issueData.repository.issue.comments.edges;
@@ -141,10 +173,11 @@ const addAllComments = async (context: Context, issueData: IssueResponse, workIt
         if (!commentsSection || commentsSection.length === 0)
             return;
 
-        commentsSection.forEach(async (section: CommentsQL) => {
+        commentsSection.forEach(async (section: CommentsResponse) => {
             const comment: string = section.node && section.node.bodyText;
 
-            // not completely sure why but there was missing data if reconnecting was not done
+            // there was missing data if reconnecting was not done and there does not seem to be
+            // another way to refresh the work item.
             const witApi = await connection.getWorkItemTrackingApi();
             witApi.addComment(
                 {
@@ -159,9 +192,17 @@ const addAllComments = async (context: Context, issueData: IssueResponse, workIt
     }
 }
 
+/**
+ * Adds a new comment to an existing azure work item
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {number} workItemId The id of the work item to be updated
+ * @param {EventResponse} body The response body from the GitHub event
+ * @returns {Promise<void>}
+ */
 const addNewcomment = async (context: Context, workItemId: number, body: EventResponse): Promise<void> => {
     const comment = body.comment && body.comment.body;
-    const user = body.comment.user.login;
+    const user = body.comment && body.comment.user.login;
 
     if (!comment)
         return;
@@ -180,11 +221,20 @@ const addNewcomment = async (context: Context, workItemId: number, body: EventRe
     }
 }
 
-
+/**
+ * Makes an update to the GitHub Issue to provide linking to the azure work item
+ * This relies on the azure bot also being installed which adds a link to the work item based on the added text
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {EventResponse} body The response body from the GitHub event
+ * @param {number} workItemId The id of the work item to be updated
+ * @param {boolean} updateComments A flag indicating whether comments should be updated
+ * @returns {Promise<void>}
+ */
 const updateGitHubIssue = async (context: Context, body: EventResponse, workItemId: number, updateComments: boolean): Promise<void> => {
     const secret = await secretClient.getSecret("GIT-RSA");
 
-    //TODO: having an encoding issue here, need to fix
+    //TODO: having an encoding issue here, need to fix.  This gets the private key to look correct
     const secretValue = secret.value.split("\\n").join("\n");
 
     const auth = createAppAuth({
@@ -238,14 +288,13 @@ const updateGitHubIssue = async (context: Context, body: EventResponse, workItem
           }
         }`;
 
-        //ignore here is because an unknown type is returned which typescript cannot process
         await graphqlWithAuth(updateMutation, {
-            //@ts-ignore
             issueId: response.repository.issue.id,
-            //@ts-ignore
             newBody: `${response.repository.issue.bodyText}\nAB#${workItemId}`
         });
 
+        // this isn't the neatest place for this but it's placed here because the response data we need
+        // was grabbed while doing the update of the issue.
         if (updateComments) {
             //update the comments in azure dev ops
             await addAllComments(context, response, workItemId);
@@ -256,6 +305,12 @@ const updateGitHubIssue = async (context: Context, body: EventResponse, workItem
     }
 }
 
+/**
+ * Gets the azure workitem id if present from the description of the issue
+ *
+ * @param {EventResponse} body The response body from the GitHub event
+ * @returns {number} The workitem ID
+ */
 const getWorkId = (body: EventResponse): number => {
     // sample body text
     // "my sample description 2 hello [AB#46](https://ddyettonline.visualstudio.com/4a40311f-104a-4329-8d3
@@ -275,6 +330,13 @@ const getWorkId = (body: EventResponse): number => {
     return parseInt(remainingBody.substring(0, firstIndex));
 }
 
+/**
+ * Sets the state of an azure workitem to closed
+ *
+ * @param {Context} context Object provided by azure functions.  Used for logging
+ * @param {number} workItemId The id of the work item to be updated
+ * @returns {Promise<void>}
+ */
 const closeWorkItem = async (context: Context, workItemId: number): Promise<void> => {
 
     try {
@@ -292,6 +354,13 @@ const closeWorkItem = async (context: Context, workItemId: number): Promise<void
 }
 
 
+/**
+ * The azure function for handling GitHub requests from msgraph-bot
+ *
+ * @param {Context} context
+ * @param {HttpRequest} req
+ * @returns {Promise<void>}
+ */
 const httpTrigger: AzureFunction = async function (context: Context, req: HttpRequest): Promise<void> {
     context.log('Received a new GitHub event');
 
