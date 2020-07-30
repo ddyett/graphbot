@@ -24,5 +24,20 @@ This is developed as an Azure function using [TypeScript](https://www.typescript
     * You will also need a personal access token to perform actions against the azure dev environment.
     * Go to your azure project and at the top right click on the user settings icon then personal access tokens.
     * This will allow you to create a new token. This application only requres read and write permissions to work items.
-12. Run npm start to get things going 
+12. Run npm start to get things going
+
+# Deploying to Azure
+You can deploy to azure using the azure functions extension for visual studio code.
+
+Once the code has been deployed you need to go to Configuration for your function service and specify the settings in the local.settings.json file so the application can get the production values.  Sensitive information should be stored in azure key vault which can be [linked to a setting](https://docs.microsoft.com/en-us/azure/app-service/app-service-key-vault-references)
+
+## Data.json
+
+Data.json also contains some data for how things should map.
+
+* repoAreaMapping map your GitHub repos to area paths the workitem should be placed in.
+* responseLabels list the labels the azure function will create new work items on if they are added to the issue.
+* workItemLabels are the labels for which the functional app will open a user story for if present.  In all other cases it will open a bug.
+* autoPromote lists the GitHub repo names for which any new issue created will automatically be promoted to azure dev ops regardless of where a response label was added.
+* assignmentMap maps GitHub user names to microsoft account names for work item assignment.
 
