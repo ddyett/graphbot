@@ -21,6 +21,10 @@ export interface IssueResponse {
     }
 }
 
+export interface User{
+    login: string
+}
+
 export interface EventResponse{
     action: string,
     issue: {
@@ -29,9 +33,7 @@ export interface EventResponse{
         node_id: string,
         number: number,
         title: string,
-        user: {
-            login: string
-        }
+        user: User,
         labels: {
             name: string
         }[],
@@ -40,9 +42,7 @@ export interface EventResponse{
     repository: {
         id: number,
         name: string,
-        owner: {
-            login: string
-        },
+        owner: User,
         html_url: string
     },
     installation: {
@@ -51,13 +51,13 @@ export interface EventResponse{
     comment: {
         url: string,
         id: number,
-        user: {
-            login: string
-        },
+        user: User,
         body: string
     },
     label: {
         name: string,
         description: string
-    }
+    },
+    sender: User,
+    assignee: User
 }

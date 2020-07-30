@@ -3,5 +3,9 @@
 .git*
 .vscode
 local.settings.json
+local.settings.sample.json
 test
 tsconfig.json
+*.pem
+.DS_Store
+.eslintrc

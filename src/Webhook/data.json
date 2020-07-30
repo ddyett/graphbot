@@ -1,6 +1,11 @@
 {
-    "RepoAreaMapping": {
+    "repoAreaMapping": {
         "graphbot-demo": "Video Project\\Area A"
     },
-    "responseLabels": ["promote"]
+    "responseLabels": ["promote"],
+    "workItemLabels": ["workitem","newfeature","enhancement"],
+    "autoPromote": [""],
+    "assignmentMap": {
+        "ddyett": "ddyett@msn.com"
+    }
 }

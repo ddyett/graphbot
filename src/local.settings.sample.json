@@ -16,7 +16,6 @@
       "BugName": "Bug",
       "UserStoryDescriptionField": "System.Description",
       "BugDescriptionField": "Microsoft.VSTS.TCM.ReproSteps",
-      "BugLabel": "Bug",
       "DefaultIteration": "Project\\Iteration 1",
       "IsDevelopment": true,
       "GitClientSecret": ""

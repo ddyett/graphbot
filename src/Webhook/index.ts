@@ -4,18 +4,18 @@ import * as azdev from "azure-devops-node-api";
 import { createAppAuth } from "@octokit/auth-app";
 import { graphql } from "@octokit/graphql";
 import smeeClient = require("smee-client"); //had to do this due to esmoduleinterop being true
-import {DefaultAzureCredential} from "@azure/identity";
-import {SecretClient} from "@azure/keyvault-secrets";
+import { DefaultAzureCredential } from "@azure/identity";
+import { SecretClient } from "@azure/keyvault-secrets";
 // eslint-disable-next-line no-unused-vars
-import {CommentsQL, IssueResponse, EventResponse} from "./Interfaces"
+import { CommentsQL, IssueResponse, EventResponse } from "./Interfaces"
 import * as data from "./data.json"
 
-const keyVaultName = process.env["KEY-VAULT-NAME"];
+const keyVaultName = process.env["KEY_VAULT_NAME"];
 const keyVaultUri = `https://${keyVaultName}.vault.azure.net`;
 
 const credential = new DefaultAzureCredential();
 const secretClient = new SecretClient(keyVaultUri, credential);
- 
+
 const token: string = process.env["ADOToken"];
 
 // establish connection to azure
@@ -31,7 +31,7 @@ if (process.env["IsDevelopment"]) {
     smee.start();
 }
 
-const createNewbug = async (context: Context, body: EventResponse): Promise<number> => {
+const createNewWorkItem = async (context: Context, body: EventResponse): Promise<number> => {
 
     interface AreaMapping {
         [repoName: string]: { areaPath: string };
@@ -46,11 +46,21 @@ const createNewbug = async (context: Context, body: EventResponse): Promise<numb
 
     // figure out if this should be filed as a bug or an issue by looking at the labels on the issue
     const labels = body.issue && body.issue.labels;
-    const workType: string = labels.some((value) => value.name.indexOf(process.env["bugLabel"])) ? process.env["BugName"] : process.env["UserStoryName"];
+
+    // we'll open bugs by default
+    let workType: string = process.env["BugName"];
+
+    for (var i = 0; i < labels.length; i++) {
+        if (data.workItemLabels.indexOf(labels[i].name) > -1) {
+            workType = process.env["UserStoryName"];
+            break;
+        }
+    }
+
     const descriptionField: string = workType === process.env["BugName"] ? process.env["BugDescriptionField"] : process.env["UserStoryDescriptionField"];
 
     //grab the area for this particular repo.
-    const areaPath: AreaMapping = data.RepoAreaMapping[body.repository.name];
+    const areaPath: AreaMapping = data.repoAreaMapping[body.repository.name];
 
     const witApi = await connection.getWorkItemTrackingApi();
     const result = await witApi.createWorkItem({},
@@ -85,7 +95,46 @@ const createNewbug = async (context: Context, body: EventResponse): Promise<numb
     return result.id;
 }
 
-const addAllComments = async (context: Context, issueData: IssueResponse /*graphql response object*/, workItemId: number): Promise<void> => {
+const updateWorkDescription = async (context: Context, body: EventResponse, workItemId: number): Promise<void> => {
+    try {
+        const witApi = await connection.getWorkItemTrackingApi();
+        const workItem = await witApi.getWorkItem(workItemId);
+
+        const descriptionField: string = workItem.fields[process.env["BugDescriptionField"]] ? process.env["BugDescriptionField"] : process.env["UserStoryDescriptionField"];
+        const azurebotIndex = body.issue.body.indexOf("[AB#");
+        const description = body.issue.body.substring(0, azurebotIndex > -1 ? azurebotIndex : undefined);
+
+        await witApi.updateWorkItem(undefined, [{
+            "op": "add",
+            "path": `/fields/${descriptionField}`,
+            "from": null,
+            "value": `${description}`
+        },
+        ], workItemId);
+    }
+    catch (err) {
+        context.log(err);
+    }
+}
+
+const updateAssignment = async (context: Context, body: EventResponse, workItemId: number): Promise<void> => {
+    try{
+        const witApi = await connection.getWorkItemTrackingApi();
+
+        await witApi.updateWorkItem(undefined, [{
+            "op": "add",
+            "path": `/fields/System.AssignedTo`,
+            "from": null,
+            "value": `${data.assignmentMap[body.assignee.login]}`
+        },
+        ], workItemId);
+    }
+    catch (err){
+        context.log(err);
+    }
+}
+
+const addAllComments = async (context: Context, issueData: IssueResponse, workItemId: number): Promise<void> => {
     try {
         const commentsSection = issueData.repository.issue.comments.edges;
 
@@ -134,9 +183,9 @@ const addNewcomment = async (context: Context, workItemId: number, body: EventRe
 
 const updateGitHubIssue = async (context: Context, body: EventResponse, workItemId: number, updateComments: boolean): Promise<void> => {
     const secret = await secretClient.getSecret("GIT-RSA");
-    
+
     //TODO: having an encoding issue here, need to fix
-    const secretValue = secret.value.split("\\n").join("\n");  
+    const secretValue = secret.value.split("\\n").join("\n");
 
     const auth = createAppAuth({
         id: parseInt(process.env["github_app_id"]),
@@ -263,8 +312,42 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
             case `opened`:
                 {
                     context.log("New issue opened received");
-                    const workItemId = await createNewbug(context, body);
-                    await updateGitHubIssue(context, body, workItemId, false /*updateComments*/);
+                    const repository = body.repository.name;
+
+                    if (repository && data.autoPromote.indexOf(repository) > -1) {
+                        context.log(`Auto Promote is enable for repo ${repository} so opening a new work item`);
+                        const workItemId = await createNewWorkItem(context, body);
+                        await updateGitHubIssue(context, body, workItemId, false /*updateComments*/);
+                    }
+                }
+                break;
+            case 'edited':
+                {
+                    if (req.headers && req.headers["x-github-event"] === 'issues') {
+                        context.log("An issue has been edited event received");
+                        const workItemId = getWorkId(body);
+
+                        if (!workItemId || body.sender.login.indexOf("bot") > -1) {
+                            context.log("Not a promoted issue so skipping")
+                            return;
+                        }
+
+                        await updateWorkDescription(context, body, workItemId);
+                    }
+                }
+                break;
+            case 'assigned':
+                {
+                    context.log("Event raised for issue assignment");
+
+                    const workItemId = getWorkId(body);
+
+                    if (!workItemId) {
+                        // not a tracked event so ignoring
+                        return;
+                    }
+
+                    await updateAssignment(context, body, workItemId);
                 }
                 break;
             case `labeled`:
@@ -275,8 +358,16 @@ const httpTrigger: AzureFunction = async function (context: Context, req: HttpRe
                     const addedLabel = body.label && body.label.name;
 
                     if (addedLabel && customLabels && customLabels.indexOf(addedLabel) > -1) {
+                        context.log(`The added label: ${addedLabel} is in the promotion list`);
+
+                        //check if there is already a workitemid on the item and if so bail
+                        let workItemId = getWorkId(body);
+                        if (workItemId) {
+                            return;
+                        }
+
                         //newly added label says we should create a new workitem
-                        const workItemId = await createNewbug(context, body);
+                        workItemId = await createNewWorkItem(context, body);
                         await updateGitHubIssue(context, body, workItemId, true /*updateComments*/);
                     }
                 }
