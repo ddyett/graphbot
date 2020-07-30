@@ -8,7 +8,7 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 // eslint-disable-next-line no-unused-vars
 import { CommentsQL, IssueResponse, EventResponse } from "./Interfaces"
-import * as data from "./data.json"
+import * as data from "../data.json"
 
 const keyVaultName = process.env["KEY_VAULT_NAME"];
 const keyVaultUri = `https://${keyVaultName}.vault.azure.net`;
